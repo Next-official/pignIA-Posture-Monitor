@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>pignIA Posture Monitor</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #030712;
+      --card-bg: rgba(15, 23, 42, 0.85);
+      --accent-blue: #00f0ff;
+      --accent-green: #10b981;
+      --accent-red: #f43f5e;
+      --text: #f9fafb;
+      --subtext: #94a3b8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      background-color: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5vh 1.5vw;
+    }
+
+    .main-card {
+      background: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 20px;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      backdrop-filter: blur(12px);
+    }
+
+    .bg-notice {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: var(--subtext);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      flex-shrink: 0;
+    }
+
+    .bg-notice .dot {
+      width: 6px;
+      height: 6px;
+      background-color: var(--accent-green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+
+    .dashboard-layout {
+      display: flex;
+      flex-direction: row;
+      gap: 20px;
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+    }
+
+    .panel-left {
+      flex: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .panel-right {
+      width: 320px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex-shrink: 0;
+    }
+
+    .viewport-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #020617;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      z-index: 1;
+    }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 2;
+    }
+
+    .loading-overlay {
+      position: absolute;
+      z-index: 3;
+      color: var(--accent-blue);
+      font-size: 0.9rem;
+      font-weight: 600;
+      background: rgba(3, 7, 18, 0.7);
+      padding: 8px 16px;
+      border-radius: 20px;
+      pointer-events: none;
+    }
+
+    .timer-control {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .btn-step {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      font-size: 1.2rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    .btn-step:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+    }
+
+    .btn-step:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .time-display {
+      font-family: monospace;
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--accent-blue);
+      letter-spacing: 1px;
+    }
+
+    .control-item { display: flex; flex-direction: column; gap: 6px; }
+    .control-item label { 
+      font-size: 0.75rem; 
+      color: var(--subtext); 
+      text-transform: uppercase; 
+      font-weight: 600; 
+      display: flex;
+      justify-content: space-between;
+    }
+
+    input[type="number"] {
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    select {
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      outline: none;
+      cursor: pointer;
+    }
+
+    select option { background: #0f172a; color: var(--text); }
+
+    .btn {
+      padding: 12px;
+      border-radius: 10px;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      user-select: none;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .btn-main {
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      background: linear-gradient(135deg, rgba(0, 240, 255, 0.1), rgba(0, 114, 255, 0.2));
+      color: var(--accent-blue);
+      margin-top: auto;
+    }
+
+    .btn-main:hover {
+      background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(0, 114, 255, 0.4));
+      border-color: var(--accent-blue);
+    }
+
+    .btn-main.active {
+      background: linear-gradient(135deg, rgba(244, 63, 94, 0.1), rgba(159, 18, 57, 0.3));
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+
+    .btn-hold {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(3, 7, 18, 0.9);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      display: none;
+    }
+
+    .modal-card {
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 24px;
+      max-width: 650px;
+      width: 90%;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .chart-box {
+      position: relative;
+      width: 100%;
+      height: 260px;
+      margin: 8px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="main-card">
+    <div class="bg-notice">
+      <span class="dot"></span>
+      <span>Analisi Posturale ad Alta Precisione</span>
+    </div>
+
+    <div class="dashboard-layout">
+      <div class="panel-left">
+        <div class="viewport-container" id="viewport">
+          <div id="loading-txt" class="loading-overlay">Inizializzazione Modello AI...</div>
+          <video id="webcam" autoplay playsinline muted></video>
+          <canvas id="output"></canvas>
+        </div>
+      </div>
+
+      <div class="panel-right">
+        <div class="timer-control">
+          <button class="btn-step" id="btn-minus" onclick="changeMinutes(-1)">-</button>
+          <div class="time-display" id="timer">10:00</div>
+          <button class="btn-step" id="btn-plus" onclick="changeMinutes(1)">+</button>
+        </div>
+
+        <div class="control-item">
+          <label>Livello di Tolleranza</label>
+          <select id="strictness-level">
+            <option value="permissive">Permissiva (±18%)</option>
+            <option value="normal" selected>Pignola (±10%)</option>
+            <option value="strict">Decisamente pignola (±5%)</option>
+          </select>
+        </div>
+
+        <div class="control-item">
+          <label>Margine di errore</label>
+          <input type="number" id="tolerance-sec" value="3" min="1" max="30">
+        </div>
+
+        <button class="btn btn-hold" onclick="requestNotificationPermission()">Attiva Notifiche PC</button>
+
+        <button class="btn btn-main" id="start-btn" onclick="toggleSession()">Avvia Sessione</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-report" class="modal-overlay">
+    <div class="modal-card">
+      <h3 style="font-size: 1.1rem;">Sessione Completata!</h3>
+      <div style="font-size: 2.5rem; font-weight: 800; color: var(--accent-green);" id="res-score">0%</div>
+      <p style="font-size: 0.8rem; color: var(--subtext);">Precisione Posturale Totale</p>
+
+      <div class="chart-box">
+        <canvas id="postureChart"></canvas>
+      </div>
+
+      <button class="btn btn-main" style="width: 100%; margin-top: 0;" onclick="closeReport()">Chiudi</button>
+    </div>
+  </div>
+
+  <script>
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('output');
+    const canvasCtx = canvasElement.getContext('2d');
+    const viewport = document.getElementById('viewport');
+    const timerEl = document.getElementById('timer');
+    const btnMinus = document.getElementById('btn-minus');
+    const btnPlus = document.getElementById('btn-plus');
+    const loadingTxt = document.getElementById('loading-txt');
+
+    let selectedMinutes = 10;
+    let baseline = null;
+    let isCalibrating = false;
+    let sessionActive = false;
+    let timeLeft = 600;
+    let timerInterval = null;
+
+    let badPostureStartTime = null;
+    let lastNotificationTime = 0;
+
+    let totalFrames = 0;
+    let goodFrames = 0;
+
+    let postureHistory = [];
+    let postureChart = null;
+    let sessionStartTime = null;
+
+    const MESH_CONNECTIONS = [
+      [7, 8],   // Orecchie
+      [11, 12], // Spalle
+      [11, 23], // Fianco Sx
+      [12, 24], // Fianco Dx
+      [23, 24]  // Bacino
+    ];
+
+    const MESH_INDICES = [0, 7, 8, 11, 12, 23, 24];
+
+    function changeMinutes(delta) {
+      if (sessionActive) return;
+      selectedMinutes = Math.max(1, Math.min(120, selectedMinutes + delta));
+      updateTimerDisplay();
+    }
+
+    function updateTimerDisplay() {
+      if (sessionActive) return;
+      timerEl.innerText = `${selectedMinutes}:00`;
+    }
+
+    function requestNotificationPermission() {
+      if ("Notification" in window) {
+        Notification.requestPermission().then(permission => {
+          if (permission === "granted") speak("Notifiche attivate.");
+        });
+      }
+    }
+
+    function sendNotification(msg) {
+      if ("Notification" in window && Notification.permission === "granted") {
+        const now = Date.now();
+        if (now - lastNotificationTime > 6000) {
+          new Notification("Posture Monitor", { body: msg });
+          lastNotificationTime = now;
+        }
+      }
+    }
+
+    function speak(text) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'it-IT';
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function calibrate() {
+      isCalibrating = true;
+    }
+
+    function toggleSession() {
+      if (sessionActive) endSession();
+      else startSession();
+    }
+
+    function startSession() {
+      sessionActive = true;
+      totalFrames = 0;
+      goodFrames = 0;
+      postureHistory = [];
+
+      timeLeft = selectedMinutes * 60;
+      sessionStartTime = Date.now();
+
+      btnMinus.disabled = true;
+      btnPlus.disabled = true;
+
+      const btn = document.getElementById('start-btn');
+      btn.innerText = "Interrompi la sessione";
+      btn.classList.add('active');
+
+      calibrate();
+      speak("Inizio monitoraggio. Posizione di calibrazione acquisita.");
+
+      timerInterval = setInterval(() => {
+        timeLeft--;
+        let mins = Math.floor(timeLeft / 60);
+        let secs = timeLeft % 60;
+        timerEl.innerText = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+
+        if (timeLeft <= 0) endSession();
+      }, 1000);
+    }
+
+    function endSession() {
+      sessionActive = false;
+      clearInterval(timerInterval);
+
+      btnMinus.disabled = false;
+      btnPlus.disabled = false;
+
+      const btn = document.getElementById('start-btn');
+      btn.innerText = "Avvia Sessione";
+      btn.classList.remove('active');
+
+      showReport();
+    }
+
+    function renderChart() {
+      const ctx = document.getElementById('postureChart').getContext('2d');
+      if (postureChart) postureChart.destroy();
+
+      const gradientGreen = ctx.createLinearGradient(0, 0, 0, 200);
+      gradientGreen.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
+      gradientGreen.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+      postureChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: postureHistory.map((_, index) => `${index + 1}s`),
+          datasets: [{
+            label: 'Stato Postura',
+            data: postureHistory,
+            borderColor: '#10b981',
+            borderWidth: 2,
+            backgroundColor: gradientGreen,
+            fill: true,
+            stepped: 'before',
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { intersect: false, mode: 'index' },
+          scales: {
+            y: {
+              min: -0.1,
+              max: 1.1,
+              ticks: {
+                stepSize: 1,
+                color: '#94a3b8',
+                font: { size: 11, weight: '600' },
+                callback: (val) => val === 1 ? 'OK' : (val === 0 ? 'ERR' : '')
+              },
+              grid: { color: 'rgba(255, 255, 255, 0.05)' }
+            },
+            x: {
+              ticks: { color: '#94a3b8', font: { size: 10 }, maxTicksLimit: 12 },
+              grid: { display: false }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#020617',
+              titleColor: '#00f0ff',
+              bodyColor: '#f9fafb',
+              borderColor: 'rgba(255, 255, 255, 0.1)',
+              borderWidth: 1,
+              callbacks: {
+                label: (context) => context.raw === 1 ? ' Postura corretta' : ' Postura errata'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function showReport() {
+      const score = totalFrames > 0 ? Math.round((goodFrames / totalFrames) * 100) : 0;
+      document.getElementById('res-score').innerText = `${score}%`;
+      document.getElementById('modal-report').style.display = 'flex';
+      renderChart();
+      speak(`Sessione completata. Punteggio: ${score} percento.`);
+    }
+
+    function closeReport() {
+      document.getElementById('modal-report').style.display = 'none';
+      updateTimerDisplay();
+    }
+
+    function getThresholds() {
+      const level = document.getElementById('strictness-level').value;
+      if (level === 'strict') {
+        return { headDropRatio: 0.05, shoulderTiltDeg: 3.5, distanceRatio: 0.08, lateralShiftRatio: 0.05 };
+      } else if (level === 'permissive') {
+        return { headDropRatio: 0.18, shoulderTiltDeg: 10.0, distanceRatio: 0.22, lateralShiftRatio: 0.15 };
+      }
+      return { headDropRatio: 0.10, shoulderTiltDeg: 5.5, distanceRatio: 0.12, lateralShiftRatio: 0.08 };
+    }
+
+    function drawMesh(landmarks, hasError) {
+      const w = canvasElement.width;
+      const h = canvasElement.height;
+
+      MESH_CONNECTIONS.forEach(([i1, i2]) => {
+        const p1 = landmarks[i1];
+        const p2 = landmarks[i2];
+
+        if (p1 && p2 && p1.visibility > 0.5 && p2.visibility > 0.5) {
+          const x1 = (1 - p1.x) * w;
+          const y1 = p1.y * h;
+          const x2 = (1 - p2.x) * w;
+          const y2 = p2.y * h;
+
+          canvasCtx.strokeStyle = hasError ? 'rgba(244, 63, 94, 0.6)' : 'rgba(16, 185, 129, 0.6)';
+          canvasCtx.lineWidth = 2;
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(x1, y1);
+          canvasCtx.lineTo(x2, y2);
+          canvasCtx.stroke();
+        }
+      });
+
+      MESH_INDICES.forEach((index) => {
+        const pt = landmarks[index];
+        if (pt && pt.visibility > 0.5) {
+          const x = (1 - pt.x) * w;
+          const y = pt.y * h;
+
+          canvasCtx.fillStyle = hasError ? '#f43f5e' : '#10b981';
+          canvasCtx.beginPath();
+          canvasCtx.arc(x, y, 6, 0, 2 * Math.PI);
+          canvasCtx.fill();
+
+          canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+          canvasCtx.lineWidth = 1.5;
+          canvasCtx.stroke();
+        }
+      });
+    }
+
+    function onResults(results) {
+      if (loadingTxt) loadingTxt.style.display = 'none';
+
+      if (canvasElement.width !== viewport.clientWidth || canvasElement.height !== viewport.clientHeight) {
+        canvasElement.width = viewport.clientWidth;
+        canvasElement.height = viewport.clientHeight;
+      }
+
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.poseLandmarks) {
+        const lm = results.poseLandmarks;
+
+        const nose = lm[0];
+        const leftShoulder = lm[11], rightShoulder = lm[12];
+
+        const shoulderCenterX = (leftShoulder.x + rightShoulder.x) / 2;
+        const shoulderCenterY = (leftShoulder.y + rightShoulder.y) / 2;
+
+        const headShoulderDistance = shoulderCenterY - nose.y;
+        const shoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+        const shoulderTilt = Math.abs(Math.atan2(rightShoulder.y - leftShoulder.y, rightShoulder.x - leftShoulder.x) * (180 / Math.PI));
+        const lateralShift = Math.abs(nose.x - shoulderCenterX);
+
+        if (isCalibrating) {
+          baseline = { headShoulderDistance, shoulderWidth, shoulderTilt, lateralShift };
+          isCalibrating = false;
+        }
+
+        let hasError = false;
+
+        if (baseline && sessionActive) {
+          totalFrames++;
+
+          const limits = getThresholds();
+
+          const headDropDev = (baseline.headShoulderDistance - headShoulderDistance) / baseline.headShoulderDistance;
+          const tiltDev = Math.abs(shoulderTilt - baseline.shoulderTilt);
+          const distDev = Math.abs(shoulderWidth - baseline.shoulderWidth) / baseline.shoulderWidth;
+          const shiftDev = Math.abs(lateralShift - baseline.lateralShift);
+
+          const headErr = headDropDev > limits.headDropRatio;
+          const tiltErr = tiltDev > limits.shoulderTiltDeg;
+          const closeErr = distDev > limits.distanceRatio;
+          const shiftErr = shiftDev > limits.lateralShiftRatio;
+
+          hasError = headErr || tiltErr || closeErr || shiftErr;
+
+          const now = Date.now();
+          const toleranceMs = (parseInt(document.getElementById('tolerance-sec').value) || 3) * 1000;
+
+          const elapsedSeconds = Math.floor((now - sessionStartTime) / 1000);
+          if (postureHistory.length <= elapsedSeconds) {
+            postureHistory.push(hasError ? 0 : 1);
+          }
+
+          if (hasError) {
+            if (!badPostureStartTime) badPostureStartTime = now;
+
+            if (now - badPostureStartTime >= toleranceMs) {
+              let alertMsg = "Correggi la postura!";
+              if (closeErr) alertMsg = "Distanza dallo schermo cambiata!";
+              else if (headErr) alertMsg = "Stai abbassando la testa!";
+              else if (tiltErr) alertMsg = "Spalle sbilanciate!";
+              else if (shiftErr) alertMsg = "Sei sbilanciato di lato!";
+
+              sendNotification(alertMsg);
+            }
+          } else {
+            badPostureStartTime = null;
+            goodFrames++;
+          }
+        }
+
+        drawMesh(lm, hasError);
+      }
+      canvasCtx.restore();
+    }
+
+    const pose = new Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}`
+    });
+
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+
+    pose.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({image: videoElement});
+      },
+      width: 640,
+      height: 480
+    });
+
+    camera.start().catch(err => {
+      loadingTxt.innerText = "Errore accesso fotocamera!";
+      loadingTxt.style.color = "#f43f5e";
+    });
+
+    updateTimerDisplay();
+  </script>
+</body>
+</html>
